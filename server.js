@@ -7,8 +7,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ── Directories ──────────────────────────────────────────────────────────────
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
-const META_FILE   = path.join(__dirname, 'update-meta.json');
+const UPLOADS_DIR = path.join('/tmp', 'uploads');
+const META_FILE   = path.join('/tmp', 'update-meta.json');
 
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
@@ -62,7 +62,7 @@ const upload = multer({
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+// app.use(express.static(path.join(__dirname, 'public'))); // Removed for Vercel
 
 // Serve uploaded files at /downloads/<filename>
 app.use('/downloads', express.static(UPLOADS_DIR));
@@ -129,10 +129,10 @@ app.delete('/api/admin/reset', (req, res) => {
 
 // ── Pages ─────────────────────────────────────────────────────────────────────
 app.get('/updates', (req, res) =>
-  res.sendFile(path.join(__dirname, 'public', 'updates.html'))
+  res.sendFile(path.join(__dirname, 'admin.html'))
 );
 app.get('/admin', (req, res) =>
-  res.sendFile(path.join(__dirname, 'public', 'admin.html'))
+  res.sendFile(path.join(__dirname, 'admin.html'))
 );
 
 // ── Error handler ─────────────────────────────────────────────────────────────
@@ -141,5 +141,8 @@ app.use((err, req, res, next) => {
   res.status(400).json({ error: err.message });
 });
 
-app.listen(PORT, () => console.log(`Server running → http://localhost:${PORT}`));
+// For Vercel serverless
 module.exports = app;
+
+// For local development (comment out for Vercel)
+// app.listen(PORT, () => console.log(`Server running → http://localhost:${PORT}`));
