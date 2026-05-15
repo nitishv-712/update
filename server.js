@@ -66,7 +66,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Serve uploaded files at /downloads/<filename>
 app.use('/downloads', express.static(UPLOADS_DIR));
-
+app.get('/', (req, res) => { res.json({ msg: 'Update Server Running!' }); });
 // ── Public API ────────────────────────────────────────────────────────────────
 // GET /api/updates/latest  — consumed by your apps
 app.get('/api/updates/latest', (req, res) => {
