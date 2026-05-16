@@ -1,6 +1,5 @@
 require('dotenv').config();
 const express    = require('express');
-const multer     = require('multer');
 const path       = require('path');
 const { createClient } = require('@supabase/supabase-js');
 
@@ -54,35 +53,6 @@ async function writeMeta({ version, description, androidUrl, windowsUrl, updated
   });
 }
 
-// Upload buffer to Supabase Storage, return public URL
-async function uploadToSupabase(buffer, originalName) {
-  const ts       = Date.now();
-  const safe     = originalName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-  const filePath = `${ts}-${safe}`;
-
-  const { error } = await supabase.storage
-    .from(BUCKET)
-    .upload(filePath, buffer, {
-      contentType:  'application/octet-stream',
-      upsert:       true,
-    });
-
-  if (error) throw new Error(`Storage upload failed: ${error.message}`);
-
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(filePath);
-  return data.publicUrl;
-}
-
-// ── Multer (memory — stream straight to Supabase) ─────────────────────────────
-const upload = multer({
-  storage: multer.memoryStorage(),
-  fileFilter: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (['.apk', '.exe'].includes(ext)) return cb(null, true);
-    cb(new Error(`Unsupported file type: ${ext}. Only .apk and .exe allowed.`));
-  },
-  limits: { fileSize: 200 * 1024 * 1024 }, // 200 MB
-});
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(express.json());
@@ -101,45 +71,55 @@ app.get('/api/updates/latest', async (req, res) => {
 });
 
 // ── Admin API ─────────────────────────────────────────────────────────────────
-app.post(
-  '/api/admin/upload',
-  upload.fields([
-    { name: 'android', maxCount: 1 },
-    { name: 'windows', maxCount: 1 },
-  ]),
-  async (req, res) => {
-    try {
-      const androidFile = req.files?.android?.[0];
-      const windowsFile = req.files?.windows?.[0];
+// Returns a signed upload URL so the client can upload directly to Supabase Storage
+app.post('/api/admin/upload-url', async (req, res) => {
+  try {
+    const { filename } = req.body;
+    if (!filename) return res.status(400).json({ error: 'filename required' });
 
-      if (!androidFile && !windowsFile) {
-        return res.status(400).json({ error: 'Upload at least one file (APK or EXE).' });
-      }
+    const ts       = Date.now();
+    const safe     = filename.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+    const filePath = `${ts}-${safe}`;
 
-      const meta        = await readMeta();
-      const sourceFile  = androidFile || windowsFile;
-      const detectedVersion = parseVersion(sourceFile.originalname);
+    const { data, error } = await supabase.storage
+      .from(BUCKET)
+      .createSignedUploadUrl(filePath);
 
-      if (androidFile) {
-        meta.androidUrl = await uploadToSupabase(androidFile.buffer, androidFile.originalname);
-      }
-      if (windowsFile) {
-        meta.windowsUrl = await uploadToSupabase(windowsFile.buffer, windowsFile.originalname);
-      }
+    if (error) throw new Error(error.message);
 
-      meta.version     = detectedVersion || meta.version || '1.0.0';
-      meta.description = req.body.description?.trim() || meta.description || '';
-      meta.updatedAt   = new Date().toISOString();
+    const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(filePath);
 
-      await writeMeta(meta);
-
-      res.json({ success: true, meta, detected: { version: detectedVersion } });
-    } catch (e) {
-      console.error(e);
-      res.status(500).json({ error: e.message });
-    }
+    res.json({ signedUrl: data.signedUrl, publicUrl: urlData.publicUrl });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
-);
+});
+
+// Saves metadata after client has uploaded files directly to Supabase Storage
+app.post('/api/admin/upload', async (req, res) => {
+  try {
+    const { androidUrl, windowsUrl, description, version } = req.body;
+
+    if (!androidUrl && !windowsUrl) {
+      return res.status(400).json({ error: 'Provide at least one of androidUrl or windowsUrl.' });
+    }
+
+    const meta = await readMeta();
+
+    if (androidUrl) meta.androidUrl = androidUrl;
+    if (windowsUrl) meta.windowsUrl = windowsUrl;
+    meta.version     = version || meta.version || '1.0.0';
+    meta.description = description?.trim() || meta.description || '';
+    meta.updatedAt   = new Date().toISOString();
+
+    await writeMeta(meta);
+
+    res.json({ success: true, meta });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
 
 app.get('/api/admin/meta', async (req, res) => {
   try {
