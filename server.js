@@ -63,7 +63,7 @@ app.get('/', (req, res) => res.json({ msg: 'Update Server Running!' }));
 app.get('/api/updates/latest', async (req, res) => {
   try {
     const meta = await readMeta();
-    if (!meta.version) return res.status(404).json({ error: 'No release uploaded yet.' });
+    if (!meta.androidUrl && !meta.windowsUrl) return res.status(404).json({ error: 'No release uploaded yet.' });
     res.json(meta);
   } catch (e) {
     res.status(500).json({ error: e.message });
